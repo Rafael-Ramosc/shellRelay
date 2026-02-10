@@ -52,7 +52,7 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &AppState) {
                 .filter(|name| !name.trim().is_empty())
                 .map(str::to_string)
                 .unwrap_or_else(|| short_identity(&m.sender));
-            let line = format!("#{} {}", sender, m.text);
+            let line = format!("#{}: {}", sender, m.text);
             ListItem::new(Line::from(line))
         })
         .collect();
