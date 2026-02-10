@@ -1,4 +1,6 @@
 mod module_bindings;
+mod state;
+mod ui;
 
 use std::{
     env, io,
@@ -15,66 +17,10 @@ use module_bindings::{
     DbConnection, MessageTableAccess, UserTableAccess, send_message as SendMessageReducerExt,
     set_name as SetNameReducerExt,
 };
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    text::Line,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use spacetimedb_sdk::{DbContext, Table, TableWithPrimaryKey};
-
-#[derive(Clone, Copy, Default)]
-enum InputMode {
-    #[default]
-    Message,
-    Name,
-}
-
-impl InputMode {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Message => "Mensagem",
-            Self::Name => "Nome",
-        }
-    }
-
-    fn toggle(&mut self) {
-        *self = match *self {
-            Self::Message => Self::Name,
-            Self::Name => Self::Message,
-        };
-    }
-}
-
-#[derive(Clone, Default)]
-struct UiMessage {
-    id: u64,
-    sender: String,
-    text: String,
-    sent_at: String,
-}
-
-#[derive(Clone, Default)]
-struct UiUser {
-    identity: String,
-    name: String,
-    online: bool,
-}
-
-#[derive(Clone, Default)]
-struct AppState {
-    messages: Vec<UiMessage>,
-    users: Vec<UiUser>,
-    input: String,
-    input_mode: InputMode,
-    my_identity: Option<String>,
-    status: String,
-    should_quit: bool,
-}
-
-type SharedState = Arc<Mutex<AppState>>;
+use state::{AppState, InputMode, SharedState, UiMessage, UiUser, snapshot_state, update_state};
+use ui::ui_message_screen::render_ui;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let module_name = env::args()
@@ -88,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
 
     let state = Arc::new(Mutex::new(AppState {
-        status: format!("Conectando em {} ({})...", module_name, uri),
+        status: false,
         ..Default::default()
     }));
 
@@ -101,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .on_connect(move |ctx, identity, _token| {
             update_state(&on_connect_state, |s| {
                 s.my_identity = Some(identity.to_string());
-                s.status = format!("Conectado como {}", short_identity(&identity.to_string()));
+                s.status = true;
             });
 
             let on_applied_state = Arc::clone(&on_connect_state);
@@ -110,22 +56,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .on_applied(move |sub_ctx| {
                     sync_from_tables(&sub_ctx.db, &on_applied_state);
                     update_state(&on_applied_state, |s| {
-                        s.status = "Assinatura ativa".to_string();
+                        s.status = true;
                     });
                 })
-                .on_error(move |_err_ctx, err| {
+                .on_error(move |_err_ctx, _err| {
                     update_state(&on_error_state, |s| {
-                        s.status = format!("Erro de assinatura: {err}");
+                        s.status = false;
                     });
                 })
                 .subscribe_to_all_tables();
         })
-        .on_disconnect(move |_ctx, err| {
+        .on_disconnect(move |_ctx, _err| {
             update_state(&on_disconnect_state, |s| {
-                s.status = match err {
-                    Some(e) => format!("Desconectado: {e}"),
-                    None => "Desconectado".to_string(),
-                };
+                s.status = false;
             });
         })
         .build()?;
@@ -286,17 +229,11 @@ fn handle_key_event(
                 InputMode::Name => conn.reducers.set_name(text),
             };
 
-            update_state(state, |s| match reducer_res {
-                Ok(()) => {
-                    s.status = match mode {
-                        InputMode::Message => "Mensagem enviada".to_string(),
-                        InputMode::Name => "Nome enviado".to_string(),
-                    };
-                }
-                Err(e) => {
-                    s.status = format!("Falha ao chamar reducer: {e}");
-                }
-            });
+            if reducer_res.is_err() {
+                update_state(state, |s| {
+                    s.status = false;
+                });
+            }
         }
         KeyCode::Char(c) => {
             if !key.modifiers.contains(KeyModifiers::CONTROL)
@@ -309,94 +246,4 @@ fn handle_key_event(
     }
 
     Ok(())
-}
-
-fn render_ui(frame: &mut ratatui::Frame<'_>, state: &AppState) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Min(6),
-            Constraint::Length(3),
-        ])
-        .split(frame.area());
-
-    let header = Paragraph::new(vec![
-        Line::from("q sair | Enter enviar | Tab alterna Mensagem/Nome | Esc limpa"),
-        Line::from(state.status.as_str()).style(Style::default().fg(Color::Cyan)),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Shell Relay"));
-    frame.render_widget(header, chunks[0]);
-
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-        .split(chunks[1]);
-
-    let message_items: Vec<ListItem<'_>> = state
-        .messages
-        .iter()
-        .map(|m| {
-            let sender = short_identity(&m.sender);
-            let line = format!("#{} {}", sender, m.text);
-            ListItem::new(Line::from(line))
-        })
-        .collect();
-
-    let messages = List::new(message_items)
-        .block(Block::default().borders(Borders::ALL).title("Mensagens"))
-        .highlight_style(Style::default().bg(Color::DarkGray));
-    frame.render_widget(messages, body[0]);
-
-    let user_items: Vec<ListItem<'_>> = state
-        .users
-        .iter()
-        .map(|u| {
-            let dot = if u.online { "●" } else { "○" };
-            let color = if u.online {
-                Color::Green
-            } else {
-                Color::DarkGray
-            };
-            let line = format!("{} {} ({})", dot, u.name, short_identity(&u.identity));
-            ListItem::new(Line::from(line).style(Style::default().fg(color)))
-        })
-        .collect();
-
-    let users_title = format!(
-        "Usuarios ({})",
-        state.users.iter().filter(|u| u.online).count()
-    );
-    let users = List::new(user_items)
-        .block(Block::default().borders(Borders::ALL).title(users_title))
-        .highlight_style(Style::default().bg(Color::DarkGray));
-    frame.render_widget(users, body[1]);
-
-    let input_title = format!("Input [{}]", state.input_mode.label());
-    let input = Paragraph::new(state.input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(input_title))
-        .style(Style::default().fg(Color::Yellow))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(input, chunks[2]);
-}
-
-fn snapshot_state(state: &SharedState) -> AppState {
-    state.lock().map(|s| s.clone()).unwrap_or_default()
-}
-
-fn update_state(state: &SharedState, f: impl FnOnce(&mut AppState)) {
-    if let Ok(mut s) = state.lock() {
-        f(&mut s);
-    }
-}
-
-fn short_identity(identity: &str) -> String {
-    const MAX: usize = 18;
-    if identity.len() <= MAX {
-        return identity.to_string();
-    }
-
-    let head = &identity[..10.min(identity.len())];
-    let tail = &identity[identity.len().saturating_sub(6)..];
-    format!("{}..{}", head, tail)
 }
