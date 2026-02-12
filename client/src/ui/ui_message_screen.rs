@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::ui::ui_state::UiState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
@@ -7,7 +7,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 
-pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &AppState) {
+pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_online: bool) {
     // -------- MAIN LAYOUT ----------
 
     let chunks = Layout::default()
@@ -92,12 +92,12 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(users_title))
         .highlight_style(Style::default().bg(Color::DarkGray));
 
-    let status_label = if state.status {
+    let status_label = if is_server_online {
         "Servidor online"
     } else {
         "Servidor offline"
     };
-    let status_color = if state.status {
+    let status_color = if is_server_online {
         Color::Green
     } else {
         Color::Red

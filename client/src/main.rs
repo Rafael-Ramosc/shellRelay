@@ -1,4 +1,5 @@
 mod module_bindings;
+mod sync;
 mod state;
 mod ui;
 
@@ -9,17 +10,16 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, Event as CEvent, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event as CEvent},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use module_bindings::{
-    DbConnection, MessageTableAccess, UserTableAccess, send_message as SendMessageReducerExt,
-    set_name as SetNameReducerExt,
-};
+use module_bindings::DbConnection;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use spacetimedb_sdk::{DbContext, Table, TableWithPrimaryKey};
-use state::{AppState, InputMode, SharedState, UiMessage, UiUser, snapshot_state, update_state};
+use spacetimedb_sdk::DbContext;
+use state::{AppState, SharedState, snapshot_state, update_state};
+use sync::{register_table_callbacks, sync_from_tables};
+use ui::key_handler::handle_key_event;
 use ui::ui_message_screen::render_ui;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -94,72 +94,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app_res
 }
 
-fn register_table_callbacks(conn: &DbConnection, state: &SharedState) {
-    let s = Arc::clone(state);
-    let _ = conn.db.message().on_insert(move |ctx, _row| {
-        sync_from_tables(&ctx.db, &s);
-    });
-
-    let s = Arc::clone(state);
-    let _ = conn.db.message().on_delete(move |ctx, _row| {
-        sync_from_tables(&ctx.db, &s);
-    });
-
-    let s = Arc::clone(state);
-    let _ = conn.db.message().on_update(move |ctx, _old, _new| {
-        sync_from_tables(&ctx.db, &s);
-    });
-
-    let s = Arc::clone(state);
-    let _ = conn.db.user().on_insert(move |ctx, _row| {
-        sync_from_tables(&ctx.db, &s);
-    });
-
-    let s = Arc::clone(state);
-    let _ = conn.db.user().on_delete(move |ctx, _row| {
-        sync_from_tables(&ctx.db, &s);
-    });
-
-    let s = Arc::clone(state);
-    let _ = conn.db.user().on_update(move |ctx, _old, _new| {
-        sync_from_tables(&ctx.db, &s);
-    });
-}
-
-fn sync_from_tables(db: &module_bindings::RemoteTables, state: &SharedState) {
-    let mut messages: Vec<UiMessage> = db
-        .message()
-        .iter()
-        .map(|m| UiMessage {
-            id: m.id,
-            sender: m.sender.to_string(),
-            text: m.text,
-            sent_at: m.sent_at.to_string(),
-        })
-        .collect();
-    messages.sort_by_key(|m| m.id);
-
-    let mut users: Vec<UiUser> = db
-        .user()
-        .iter()
-        .map(|u| UiUser {
-            identity: u.identity.to_string(),
-            name: u.name,
-            online: u.online,
-        })
-        .collect();
-    users.sort_by(|a, b| {
-        b.online
-            .cmp(&a.online)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-
-    update_state(state, |s| {
-        s.messages = messages;
-        s.users = users;
-    });
-}
-
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     conn: &DbConnection,
@@ -167,9 +101,9 @@ fn run_app(
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let snapshot = snapshot_state(state);
-        terminal.draw(|f| render_ui(f, &snapshot))?;
+        terminal.draw(|f| render_ui(f, &snapshot.ui, snapshot.status))?;
 
-        if snapshot.should_quit {
+        if snapshot.ui.should_quit {
             break;
         }
 
@@ -178,71 +112,6 @@ fn run_app(
         {
             handle_key_event(key, conn, state)?;
         }
-    }
-
-    Ok(())
-}
-
-fn handle_key_event(
-    key: KeyEvent,
-    conn: &DbConnection,
-    state: &SharedState,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if key.kind != event::KeyEventKind::Press {
-        return Ok(());
-    }
-
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-        update_state(state, |s| s.should_quit = true);
-        return Ok(());
-    }
-
-    match key.code {
-        KeyCode::Char('q') => {
-            update_state(state, |s| s.should_quit = true);
-        }
-        KeyCode::Tab => {
-            update_state(state, |s| s.input_mode.toggle());
-        }
-        KeyCode::Esc => {
-            update_state(state, |s| s.input.clear());
-        }
-        KeyCode::Backspace => {
-            update_state(state, |s| {
-                s.input.pop();
-            });
-        }
-        KeyCode::Enter => {
-            let (mode, text) = {
-                let mut guard = state.lock().expect("state poisoned");
-                let text = guard.input.trim().to_string();
-                guard.input.clear();
-                (guard.input_mode, text)
-            };
-
-            if text.is_empty() {
-                return Ok(());
-            }
-
-            let reducer_res = match mode {
-                InputMode::Message => conn.reducers.send_message(text),
-                InputMode::Name => conn.reducers.set_name(text),
-            };
-
-            if reducer_res.is_err() {
-                update_state(state, |s| {
-                    s.status = false;
-                });
-            }
-        }
-        KeyCode::Char(c) => {
-            if !key.modifiers.contains(KeyModifiers::CONTROL)
-                && !key.modifiers.contains(KeyModifiers::ALT)
-            {
-                update_state(state, |s| s.input.push(c));
-            }
-        }
-        _ => {}
     }
 
     Ok(())
