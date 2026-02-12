@@ -198,3 +198,7 @@ fn short_identity(identity: &str) -> String {
     let tail = &identity[identity.len().saturating_sub(6)..];
     format!("{}..{}", head, tail)
 }
+
+#[cfg(test)]
+#[path = "tests/sync_tests.rs"]
+mod tests;

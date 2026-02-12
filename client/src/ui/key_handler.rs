@@ -1,8 +1,6 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
-use std::sync::mpsc::Sender;
 
 use crate::{
-    ai::request_mage_reply,
     module_bindings::{
         DbConnection, send_message as SendMessageReducerExt, set_name as SetNameReducerExt,
     },
@@ -20,7 +18,6 @@ pub fn handle_key_event(
     key: KeyEvent,
     conn: &DbConnection,
     state: &SharedState,
-    ai_reply_tx: &Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if key.kind != event::KeyEventKind::Press {
         // Ignora eventos de repeat/release.
@@ -50,7 +47,7 @@ pub fn handle_key_event(
 
     match screen {
         UiScreen::MainMenu => handle_menu_key(key, state),
-        UiScreen::Chat => handle_chat_key(key, conn, state, ai_reply_tx),
+        UiScreen::Chat => handle_chat_key(key, conn, state),
     }
 }
 
@@ -168,7 +165,6 @@ fn handle_chat_key(
     key: KeyEvent,
     conn: &DbConnection,
     state: &SharedState,
-    ai_reply_tx: &Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match key.code {
         KeyCode::PageUp => {
@@ -241,9 +237,6 @@ fn handle_chat_key(
                     s.status = false;
                 });
             }
-
-            // IA responde em paralelo usando contexto local e publica pelo bot.
-            request_mage_reply(state, text, ai_reply_tx.clone());
         }
         KeyCode::Char(c) => {
             if !key.modifiers.contains(KeyModifiers::CONTROL)

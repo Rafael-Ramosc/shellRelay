@@ -404,3 +404,7 @@ fn wrap_plain_lines(text: &str, width: usize) -> Vec<String> {
 
     out
 }
+
+#[cfg(test)]
+#[path = "../tests/ui_message_screen_tests.rs"]
+mod tests;

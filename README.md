@@ -12,6 +12,19 @@ Pré-requisito:
 
 - estar logado no CLI quando publicar em servidor remoto: `spacetime login`
 
+Reset rápido do banco local (`shell-relay-test`):
+
+```bash
+spacetime publish shell-relay-test -p server --delete-data=always --yes
+```
+
+Verificar se zerou (opcional):
+
+```bash
+spacetime sql shell-relay-test "select count(*) as total from message;"
+spacetime sql shell-relay-test "select count(*) as total from user;"
+```
+
 Publicar o módulo `server` com um nome novo de banco:
 
 ```bash

@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::ui::ui_state::UiState;
 
@@ -27,8 +30,8 @@ pub struct AppState {
     pub my_identity: Option<String>,
     /// Status de conectividade com o backend.
     pub status: bool,
-    /// Histórico curto de contexto usado nas chamadas da IA.
-    pub ai_history: Vec<AiHistoryEntry>,
+    /// Histórico curto de contexto por bot de IA.
+    pub ai_histories: HashMap<String, Vec<AiHistoryEntry>>,
 }
 
 /// Tipo utilitário para compartilhar `AppState` entre threads.
