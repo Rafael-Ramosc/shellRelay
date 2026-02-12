@@ -16,15 +16,15 @@ pub mod user_table;
 pub mod user_type;
 
 pub use identity_connected_reducer::{
-    identity_connected, set_flags_for_identity_connected, IdentityConnectedCallbackId,
+    IdentityConnectedCallbackId, identity_connected, set_flags_for_identity_connected,
 };
 pub use identity_disconnected_reducer::{
-    identity_disconnected, set_flags_for_identity_disconnected, IdentityDisconnectedCallbackId,
+    IdentityDisconnectedCallbackId, identity_disconnected, set_flags_for_identity_disconnected,
 };
 pub use message_table::*;
 pub use message_type::Message;
-pub use send_message_reducer::{send_message, set_flags_for_send_message, SendMessageCallbackId};
-pub use set_name_reducer::{set_flags_for_set_name, set_name, SetNameCallbackId};
+pub use send_message_reducer::{SendMessageCallbackId, send_message, set_flags_for_send_message};
+pub use set_name_reducer::{SetNameCallbackId, set_flags_for_set_name, set_name};
 pub use user_table::*;
 pub use user_type::User;
 
@@ -432,21 +432,21 @@ impl __sdk::SubscriptionHandle for SubscriptionHandle {
 /// either a [`DbConnection`] or an [`EventContext`] and operate on either.
 pub trait RemoteDbContext:
     __sdk::DbContext<
-    DbView = RemoteTables,
-    Reducers = RemoteReducers,
-    SetReducerFlags = SetReducerFlags,
-    SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
->
+        DbView = RemoteTables,
+        Reducers = RemoteReducers,
+        SetReducerFlags = SetReducerFlags,
+        SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
+    >
 {
 }
 impl<
-        Ctx: __sdk::DbContext<
+    Ctx: __sdk::DbContext<
             DbView = RemoteTables,
             Reducers = RemoteReducers,
             SetReducerFlags = SetReducerFlags,
             SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
         >,
-    > RemoteDbContext for Ctx
+> RemoteDbContext for Ctx
 {
 }
 

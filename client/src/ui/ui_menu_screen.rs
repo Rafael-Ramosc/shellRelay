@@ -9,7 +9,11 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 
-pub fn render_menu_screen(frame: &mut ratatui::Frame<'_>, state: &UiState, _is_server_online: bool) {
+pub fn render_menu_screen(
+    frame: &mut ratatui::Frame<'_>,
+    state: &UiState,
+    _is_server_online: bool,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

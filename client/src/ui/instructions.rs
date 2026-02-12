@@ -27,7 +27,10 @@ pub fn render_instructions(
 
     let mut spans: Vec<Span<'_>> = Vec::new();
     if !side.is_empty() {
-        spans.push(Span::styled(side.clone(), Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            side.clone(),
+            Style::default().fg(Color::DarkGray),
+        ));
         spans.push(Span::raw(" "));
     }
 

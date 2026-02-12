@@ -4,12 +4,50 @@ use spacetimedb_sdk::{Table, TableWithPrimaryKey};
 
 use crate::{
     module_bindings::{DbConnection, MessageTableAccess, RemoteTables, UserTableAccess},
-    state::{SharedState, update_state},
+    state::{AppState, SharedState, update_state},
     ui::ui_state::{UiMessage, UiUser},
 };
 
-const SYSTEM_MESSAGE_ID_BASE: u64 = 1_000_000_000_000_000_000;
-const MAX_SYSTEM_MESSAGES: usize = 200;
+pub(crate) const SYSTEM_MESSAGE_ID_BASE: u64 = 1_000_000_000_000_000_000;
+pub(crate) const MAX_SYSTEM_MESSAGES: usize = 200;
+
+pub fn add_local_system_message(
+    state: &SharedState,
+    sender: impl Into<String>,
+    text: impl Into<String>,
+) {
+    let sender = sender.into();
+    let text = text.into();
+    update_state(state, |s| {
+        let id = SYSTEM_MESSAGE_ID_BASE.saturating_add(s.ui.next_system_message_id);
+        s.ui.next_system_message_id = s.ui.next_system_message_id.saturating_add(1);
+        s.ui.system_messages.push(UiMessage {
+            id,
+            sender,
+            text,
+            sent_at: String::new(),
+        });
+        if s.ui.system_messages.len() > MAX_SYSTEM_MESSAGES {
+            let to_drop = s.ui.system_messages.len() - MAX_SYSTEM_MESSAGES;
+            s.ui.system_messages.drain(0..to_drop);
+        }
+
+        rebuild_messages_with_system(s);
+    });
+}
+
+fn rebuild_messages_with_system(state: &mut AppState) {
+    let mut non_system_messages: Vec<UiMessage> = state
+        .ui
+        .messages
+        .iter()
+        .filter(|m| m.id < SYSTEM_MESSAGE_ID_BASE)
+        .cloned()
+        .collect();
+    non_system_messages.extend(state.ui.system_messages.iter().cloned());
+    non_system_messages.sort_by_key(|m| m.id);
+    state.ui.messages = non_system_messages;
+}
 
 pub fn register_table_callbacks(conn: &DbConnection, state: &SharedState) {
     let s = Arc::clone(state);
@@ -80,8 +118,10 @@ pub fn sync_from_tables(db: &RemoteTables, state: &SharedState) {
                 .iter()
                 .map(|u| (u.identity.as_str(), u.online))
                 .collect();
-            let current_online: HashMap<&str, bool> =
-                users.iter().map(|u| (u.identity.as_str(), u.online)).collect();
+            let current_online: HashMap<&str, bool> = users
+                .iter()
+                .map(|u| (u.identity.as_str(), u.online))
+                .collect();
 
             for user in &users {
                 let was_online = previous_online
