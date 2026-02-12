@@ -20,7 +20,9 @@ use spacetimedb_sdk::DbContext;
 use state::{AppState, SharedState, snapshot_state, update_state};
 use sync::{register_table_callbacks, sync_from_tables};
 use ui::key_handler::handle_key_event;
+use ui::ui_menu_screen::render_menu_screen;
 use ui::ui_message_screen::render_ui;
+use ui::ui_state::UiScreen;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let module_name = env::args()
@@ -101,7 +103,10 @@ fn run_app(
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let snapshot = snapshot_state(state);
-        terminal.draw(|f| render_ui(f, &snapshot.ui, snapshot.status))?;
+        terminal.draw(|f| match snapshot.ui.screen {
+            UiScreen::MainMenu => render_menu_screen(f, &snapshot.ui, snapshot.status),
+            UiScreen::Chat => render_ui(f, &snapshot.ui, snapshot.status),
+        })?;
 
         if snapshot.ui.should_quit {
             break;

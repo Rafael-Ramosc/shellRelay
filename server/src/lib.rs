@@ -24,17 +24,18 @@ pub struct Message {
 // Chamado automaticamente quando alguém conecta
 #[reducer(client_connected)]
 pub fn identity_connected(ctx: &ReducerContext) {
-    // Cria um usuário padrão se ele não existir
+    // Cria usuário se não existir, mas não entra no chat ainda.
+    // O usuário só fica online depois de escolher nome no set_name.
     if let None = ctx.db.user().identity().find(ctx.sender) {
         ctx.db.user().insert(User {
             identity: ctx.sender,
             name: "Anônimo".to_string(),
-            online: true,
+            online: false,
         });
     } else {
-        // Se já existe, marca como online
+        // Se já existe, mantém offline até confirmar nome novamente
         if let Some(mut user) = ctx.db.user().identity().find(ctx.sender) {
-            user.online = true;
+            user.online = false;
             ctx.db.user().identity().update(user);
         }
     }
@@ -52,6 +53,15 @@ pub fn identity_disconnected(ctx: &ReducerContext) {
 // Função que o Client vai chamar para enviar mensagem
 #[reducer]
 pub fn send_message(ctx: &ReducerContext, text: String) {
+    // Só permite enviar depois de entrar no chat (online=true)
+    if let Some(user) = ctx.db.user().identity().find(ctx.sender) {
+        if !user.online {
+            return;
+        }
+    } else {
+        return;
+    }
+
     // Validação simples: não aceita mensagem vazia
     if text.trim().is_empty() {
         return;
@@ -68,8 +78,14 @@ pub fn send_message(ctx: &ReducerContext, text: String) {
 // Função para mudar o nome de usuário
 #[reducer]
 pub fn set_name(ctx: &ReducerContext, new_name: String) {
+    let cleaned = new_name.trim().to_string();
+    if cleaned.is_empty() {
+        return;
+    }
+
     if let Some(mut user) = ctx.db.user().identity().find(ctx.sender) {
-        user.name = new_name;
+        user.name = cleaned;
+        user.online = true;
         ctx.db.user().identity().update(user);
     }
 }
