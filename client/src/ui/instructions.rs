@@ -5,12 +5,14 @@ use ratatui::{
     widgets::Paragraph,
 };
 
+/// Item simples de instrução exibido no rodapé.
 #[derive(Clone, Copy)]
 pub struct InstructionItem<'a> {
     pub label: &'a str,
     pub key: &'a str,
 }
 
+/// Renderiza barra de instruções centralizada com "linhas" laterais.
 pub fn render_instructions(
     frame: &mut ratatui::Frame<'_>,
     area: Rect,
@@ -20,6 +22,7 @@ pub fn render_instructions(
         return;
     }
 
+    // Calcula quanto espaço sobrou para preencher com traços nas laterais.
     let content_width = instruction_text_width(items);
     let total_width = area.width as usize;
     let side_len = total_width.saturating_sub(content_width + 2) / 2;
@@ -56,6 +59,7 @@ pub fn render_instructions(
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+/// Mede largura textual do conjunto de instruções para centralização.
 fn instruction_text_width(items: &[InstructionItem<'_>]) -> usize {
     let mut width = 0;
     for (idx, item) in items.iter().enumerate() {

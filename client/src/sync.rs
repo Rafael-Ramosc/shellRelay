@@ -8,9 +8,12 @@ use crate::{
     ui::ui_state::{UiMessage, UiUser},
 };
 
+// IDs de mensagens locais começam em uma faixa alta para nunca colidir
+// com os IDs autoincrementais vindos do backend.
 pub(crate) const SYSTEM_MESSAGE_ID_BASE: u64 = 1_000_000_000_000_000_000;
 pub(crate) const MAX_SYSTEM_MESSAGES: usize = 200;
 
+/// Adiciona mensagem local (ex.: avisos do sistema/erros) e recompõe a lista renderizada.
 pub fn add_local_system_message(
     state: &SharedState,
     sender: impl Into<String>,
@@ -36,6 +39,7 @@ pub fn add_local_system_message(
     });
 }
 
+/// Recria `ui.messages` a partir das mensagens remotas + locais preservando ordem.
 fn rebuild_messages_with_system(state: &mut AppState) {
     let mut non_system_messages: Vec<UiMessage> = state
         .ui
@@ -49,6 +53,7 @@ fn rebuild_messages_with_system(state: &mut AppState) {
     state.ui.messages = non_system_messages;
 }
 
+/// Registra callbacks de tabela para manter a UI sincronizada em tempo real.
 pub fn register_table_callbacks(conn: &DbConnection, state: &SharedState) {
     let s = Arc::clone(state);
     let _ = conn.db.message().on_insert(move |ctx, _row| {
@@ -81,7 +86,9 @@ pub fn register_table_callbacks(conn: &DbConnection, state: &SharedState) {
     });
 }
 
+/// Reconcilia estado local com as tabelas materializadas do SpacetimeDB.
 pub fn sync_from_tables(db: &RemoteTables, state: &SharedState) {
+    // Snapshot atual de mensagens remotas.
     let mut messages: Vec<UiMessage> = db
         .message()
         .iter()
@@ -110,6 +117,7 @@ pub fn sync_from_tables(db: &RemoteTables, state: &SharedState) {
     });
 
     update_state(state, |s| {
+        // Detecta transições de presença comparando estado anterior x atual.
         let previous_users = s.ui.users.clone();
         let mut presence_events: Vec<String> = Vec::new();
 
@@ -145,6 +153,7 @@ pub fn sync_from_tables(db: &RemoteTables, state: &SharedState) {
         }
         s.ui.users_presence_initialized = true;
 
+        // Converte eventos de presença em mensagens locais do "System".
         for text in presence_events {
             let id = SYSTEM_MESSAGE_ID_BASE.saturating_add(s.ui.next_system_message_id);
             s.ui.next_system_message_id = s.ui.next_system_message_id.saturating_add(1);
@@ -169,6 +178,7 @@ pub fn sync_from_tables(db: &RemoteTables, state: &SharedState) {
     });
 }
 
+/// Exibe nome amigável com fallback para identity curta.
 fn display_user_name(user: &UiUser) -> String {
     if !user.name.trim().is_empty() {
         return user.name.clone();
@@ -177,6 +187,7 @@ fn display_user_name(user: &UiUser) -> String {
     short_identity(&user.identity)
 }
 
+/// Identity abreviada para layout compacto em terminal.
 fn short_identity(identity: &str) -> String {
     const MAX: usize = 18;
     if identity.len() <= MAX {

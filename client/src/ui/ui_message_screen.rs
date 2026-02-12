@@ -10,6 +10,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 
+/// Renderiza a tela principal de chat (mensagens, usuários, input e rodapé).
 pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_online: bool) {
     // -------- MAIN LAYOUT ----------
 
@@ -43,8 +44,10 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_onli
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(chunks[1]);
+    let messages_inner_width = body[0].width.saturating_sub(2) as usize;
 
     // -------- LIST MESSAGE ----------
+    // Mapeia identity -> nome para exibir remetentes de forma amigável.
 
     let user_names_by_identity: HashMap<&str, &str> = state
         .users
@@ -52,29 +55,43 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_onli
         .map(|u| (u.identity.as_str(), u.name.as_str()))
         .collect();
 
-    let message_items: Vec<ListItem<'_>> = state
+    let message_lines: Vec<Line<'_>> = state
         .messages
         .iter()
-        .map(|m| {
+        .flat_map(|m| {
             let sender = user_names_by_identity
                 .get(m.sender.as_str())
                 .copied()
                 .filter(|name| !name.trim().is_empty())
                 .map(str::to_string)
                 .unwrap_or_else(|| short_identity(&m.sender));
-            let line = match format_message_datetime(&m.sent_at) {
-                Some(date_time) => format!("[{}] {}: {}", date_time, sender, m.text),
-                None => format!("{}: {}", sender, m.text),
+
+            let prefix = match format_message_datetime(&m.sent_at) {
+                Some(date_time) => format!("[{}] {}: ", date_time, sender),
+                None => format!("{}: ", sender),
             };
-            ListItem::new(Line::from(line))
+            let wrapped_lines = wrap_message_lines(&prefix, &m.text, messages_inner_width);
+            wrapped_lines
+                .into_iter()
+                .map(Line::from)
+                .collect::<Vec<Line<'_>>>()
         })
         .collect();
-
-    let messages = List::new(message_items)
+    let messages_visible_rows = body[0].height.saturating_sub(2) as usize;
+    let messages_max_scroll = if messages_visible_rows == 0 {
+        0
+    } else {
+        message_lines.len().saturating_sub(messages_visible_rows)
+    };
+    let messages_scroll = messages_max_scroll
+        .saturating_sub(state.messages_scroll_from_bottom.min(messages_max_scroll));
+    let messages = Paragraph::new(message_lines)
         .block(Block::default().borders(Borders::ALL).title("Messages"))
-        .highlight_style(Style::default().bg(Color::DarkGray));
+        .scroll((messages_scroll.min(u16::MAX as usize) as u16, 0))
+        .wrap(Wrap { trim: false });
 
     // -------- LIST USERS ----------
+    // Lista lateral com scroll independente da lista de mensagens.
 
     let users_visible_rows = body[1].height.saturating_sub(2) as usize;
     let reserve_hint_row = users_visible_rows > 1 && state.users.len() > users_visible_rows;
@@ -155,6 +172,7 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_onli
 
     //body chunk[1]
     frame.render_widget(messages, body[0]);
+    render_messages_overflow_hint(frame, body[0], messages_scroll, messages_max_scroll);
 
     // users chunk
     frame.render_widget(users, body[1]);
@@ -170,6 +188,10 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_onli
             key: "Enter",
         },
         InstructionItem {
+            label: "Messages",
+            key: "PgUp/PgDn",
+        },
+        InstructionItem {
             label: "Users",
             key: "Up/Down",
         },
@@ -180,10 +202,6 @@ pub fn render_ui(frame: &mut ratatui::Frame<'_>, state: &UiState, is_server_onli
         InstructionItem {
             label: "Menu",
             key: "F1",
-        },
-        InstructionItem {
-            label: "Quit",
-            key: "Q",
         },
     ];
     render_instructions(frame, chunks[3], &instructions);
@@ -225,6 +243,44 @@ fn render_users_overflow_hint(
     frame.render_widget(hint, hint_area);
 }
 
+/// Hint de navegação da caixa de mensagens quando existe overflow vertical.
+fn render_messages_overflow_hint(
+    frame: &mut ratatui::Frame<'_>,
+    messages_area: Rect,
+    messages_scroll: usize,
+    messages_max_scroll: usize,
+) {
+    if messages_max_scroll == 0 {
+        return;
+    }
+
+    let hint_area = Rect {
+        x: messages_area.x.saturating_add(1),
+        y: messages_area
+            .y
+            .saturating_add(messages_area.height.saturating_sub(2)),
+        width: messages_area.width.saturating_sub(2),
+        height: 1,
+    };
+    if hint_area.width == 0 {
+        return;
+    }
+
+    let hint_text = if messages_scroll == 0 {
+        "Older messages ↑"
+    } else if messages_scroll >= messages_max_scroll {
+        "Newer messages ↓"
+    } else {
+        "Older ↑ | Newer ↓"
+    };
+
+    let hint = Paragraph::new(hint_text)
+        .alignment(Alignment::Right)
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(hint, hint_area);
+}
+
+/// Abrevia identity longa para caber no layout do terminal.
 fn short_identity(identity: &str) -> String {
     const MAX: usize = 18;
     if identity.len() <= MAX {
@@ -236,6 +292,7 @@ fn short_identity(identity: &str) -> String {
     format!("{}..{}", head, tail)
 }
 
+/// Tenta normalizar timestamps em formato curto `dd/mm/yyyy hh:mm`.
 fn format_message_datetime(raw: &str) -> Option<String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -280,4 +337,70 @@ fn format_message_datetime(raw: &str) -> Option<String> {
         year.unwrap_or_default(),
         hm
     ))
+}
+
+/// Quebra uma mensagem em múltiplas linhas sem perder o contexto do prefixo
+/// (`[data] nome:`), alinhando visualmente as linhas seguintes.
+fn wrap_message_lines(prefix: &str, text: &str, total_width: usize) -> Vec<String> {
+    if total_width == 0 {
+        return vec![];
+    }
+
+    let prefix_width = prefix.chars().count();
+    if prefix_width >= total_width {
+        let full = format!("{prefix}{text}");
+        return wrap_plain_lines(&full, total_width);
+    }
+
+    let content_width = (total_width - prefix_width).max(1);
+    let wrapped_content = wrap_plain_lines(text, content_width);
+    let mut out = Vec::with_capacity(wrapped_content.len().max(1));
+    let indent = " ".repeat(prefix_width);
+
+    if wrapped_content.is_empty() {
+        out.push(prefix.to_string());
+        return out;
+    }
+
+    for (idx, line) in wrapped_content.iter().enumerate() {
+        if idx == 0 {
+            out.push(format!("{prefix}{line}"));
+        } else {
+            out.push(format!("{indent}{line}"));
+        }
+    }
+
+    out
+}
+
+/// Quebra texto bruto por largura fixa preservando quebras de linha existentes.
+fn wrap_plain_lines(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![];
+    }
+
+    let mut out = Vec::new();
+    let lines: Vec<&str> = if text.is_empty() {
+        vec![""]
+    } else {
+        text.split('\n').collect()
+    };
+
+    for line in lines {
+        if line.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = 0usize;
+        while start < chars.len() {
+            let end = (start + width).min(chars.len());
+            let chunk: String = chars[start..end].iter().collect();
+            out.push(chunk);
+            start = end;
+        }
+    }
+
+    out
 }

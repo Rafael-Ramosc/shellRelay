@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 
+/// Renderiza menu principal e popups associados.
 pub fn render_menu_screen(
     frame: &mut ratatui::Frame<'_>,
     state: &UiState,
@@ -69,6 +70,7 @@ pub fn render_menu_screen(
     }
 }
 
+/// Rodapé padrão quando não há popup aberto no menu.
 fn menu_instructions() -> [InstructionItem<'static>; 4] {
     [
         InstructionItem {
@@ -90,6 +92,7 @@ fn menu_instructions() -> [InstructionItem<'static>; 4] {
     ]
 }
 
+/// Popup de entrada de nome antes de entrar no chat.
 fn render_choose_name_popup(frame: &mut ratatui::Frame<'_>, state: &UiState) {
     let area = centered_rect(50, 28, frame.area());
     frame.render_widget(Clear, area);
@@ -136,14 +139,11 @@ fn render_choose_name_popup(frame: &mut ratatui::Frame<'_>, state: &UiState) {
             label: "Close",
             key: "Esc",
         },
-        InstructionItem {
-            label: "Quit",
-            key: "Q",
-        },
     ];
     render_instructions(frame, inner[3], &instructions);
 }
 
+/// Popup placeholder da seção de opções.
 fn render_soon_popup(frame: &mut ratatui::Frame<'_>) {
     let area = centered_rect(34, 22, frame.area());
     frame.render_widget(Clear, area);
@@ -181,14 +181,11 @@ fn render_soon_popup(frame: &mut ratatui::Frame<'_>) {
             label: "Close",
             key: "Esc",
         },
-        InstructionItem {
-            label: "Quit",
-            key: "Q",
-        },
     ];
     render_instructions(frame, inner[2], &instructions);
 }
 
+/// Utilitário para centralizar blocos por percentual de largura/altura.
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
